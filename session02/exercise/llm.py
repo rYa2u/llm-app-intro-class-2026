@@ -29,13 +29,13 @@ def ask_plain(question):
             'input_tokens': 0, 'output_tokens': 0,
         }
     client = make_client()
-    # TODO: API呼び出しのコメントを外し、raiseを削除する
-    # response = client.responses.create(
-    #     model=MODEL, reasoning={'effort': 'none'},
-    #     instructions='あなたは授業の学習を手伝うアシスタントです。日本語で簡潔に答えてください。',
-    #     input=question,
-    #     max_output_tokens=600,
-    #     store=False,
-    # )
-    raise NotImplementedError('TODO: API呼び出しのコメントを外し、raiseを削除する')
+    # BEGIN EXERCISE api
+    response = client.responses.create(
+        model=MODEL, reasoning={'effort': 'none'},
+        instructions='あなたは授業の学習を手伝うアシスタントです。日本語で簡潔に答えてください。',
+        input=question,
+        max_output_tokens=600,
+        store=False,
+    )
+    # END EXERCISE api
     return response_result(response)
