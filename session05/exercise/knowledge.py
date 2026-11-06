@@ -74,11 +74,10 @@ def search_keyword(search_text, top_k):
     for chunk in all_chunks():
         text = (chunk['title'] + ' ' + chunk['heading'] + ' ' + chunk['body']).lower()
         score = 0
-        # TODO: 単語ごとの一致件数を加算する
-        # for word in words:
-        #     if word in text:
-        #         score += 1
-        raise NotImplementedError('TODO: 単語ごとの一致件数を加算する')
+        # 各検索語が資料に含まれていれば1点加算する。
+        for word in words:
+            if word in text:
+                score += 1
         if score > 0:
             chunk['score'] = score
             results.append(chunk)

@@ -30,7 +30,8 @@ def load_app(tmp_path, monkeypatch):
         sys.modules.pop(name, None)
 
 
-@pytest.mark.parametrize('relative,stage', [('sample-app',8), ('your-app',8)] +
+@pytest.mark.parametrize('relative,stage', [('sample-app',8), ('your-app',8),
+                                         ('session05/exercise',5)] +
                          [(f'session{i:02}/solution',i) for i in [1,3,4,5,6,7,8]])
 def test_each_complete_app(load_app, relative, stage):
     main, directory = load_app(relative)
@@ -100,7 +101,7 @@ def test_rate_limit(load_app):
     assert client.post('/api/ask',json={'question':'a','mode':'plain'}).status_code == 429
 
 
-@pytest.mark.parametrize('stage,mode',[(5,'keyword'),(6,'vector'),(7,'tools'),(8,'plain')])
+@pytest.mark.parametrize('stage,mode',[(6,'vector'),(7,'tools'),(8,'plain')])
 def test_exercises_fail_explicitly_until_completed(load_app, stage, mode):
     main, _ = load_app(f'session{stage:02}/exercise')
     if stage == 6:
@@ -109,6 +110,34 @@ def test_exercises_fail_explicitly_until_completed(load_app, stage, mode):
         'question':'SQLite 保存','mode':mode,'search_text':'SQLite 保存'})
     assert response.status_code == 501
     assert 'TODO' in response.json()['detail']
+
+
+@pytest.mark.parametrize('top_k,expected_ids', [(1,[2]), (3,[2,3,8]), (5,[2,3,8])])
+def test_session05_keyword_results(load_app, top_k, expected_ids):
+    main, _ = load_app('session05/exercise')
+    client = TestClient(main.app)
+    response = client.post('/api/ask', json={
+        'question':'SQLiteにデータを保存するには？', 'mode':'keyword',
+        'search_text':'SQLite 保存', 'top_k':top_k})
+    assert response.status_code == 200
+    sources = response.json()['sources']
+    assert [chunk['id'] for chunk in sources] == expected_ids
+    assert [chunk['score'] for chunk in sources] == [2,2,1][:top_k]
+
+
+def test_session05_no_match_skips_generation(load_app, monkeypatch):
+    main, _ = load_app('session05/exercise')
+    llm = importlib.import_module('llm')
+    monkeypatch.setattr(llm, 'DEMO_MODE', False)
+    def unexpected_client():
+        pytest.fail('検索結果0件ではLLMを呼び出さない')
+    monkeypatch.setattr(llm, 'make_client', unexpected_client)
+    response = TestClient(main.app).post('/api/ask', json={
+        'question':'SQLiteに保存するには？', 'mode':'keyword',
+        'search_text':'zzzz-no-match'})
+    assert response.status_code == 200
+    assert response.json()['sources'] == []
+    assert response.json()['answer'] == '参照できる資料が見つかりません。検索語を変えてください。'
 
 
 def response_json(output, response_id='resp_test'):
