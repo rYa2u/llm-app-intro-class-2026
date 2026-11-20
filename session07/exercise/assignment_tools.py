@@ -39,12 +39,11 @@ def get_assignments(status):
         raise ValueError('提出状況の指定が不正です。')
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    # TODO: パラメータバインディングで課題を取得する
-    # if status == 'all':
-    #     cursor.execute('SELECT id, title, status FROM assignments ORDER BY id')
-    # else:
-    #     cursor.execute('SELECT id, title, status FROM assignments WHERE status = ? ORDER BY id', (status,))
-    raise NotImplementedError('TODO: パラメータバインディングで課題を取得する')
+    # SQLの形を固定し、絞り込みの値は別の引数で渡す。
+    if status == 'all':
+        cursor.execute('SELECT id, title, status FROM assignments ORDER BY id')
+    else:
+        cursor.execute('SELECT id, title, status FROM assignments WHERE status = ? ORDER BY id', (status,))
     rows = cursor.fetchall()
     conn.close()
     assignments = []

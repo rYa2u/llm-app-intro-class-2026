@@ -31,7 +31,9 @@ def load_app(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('relative,stage', [('sample-app',8), ('your-app',8),
-                                         ('session05/exercise',5)] +
+                                         ('session05/exercise',5),
+                                         ('session06/exercise',6),
+                                         ('session07/exercise',7)] +
                          [(f'session{i:02}/solution',i) for i in [1,3,4,5,6,7,8]])
 def test_each_complete_app(load_app, relative, stage):
     main, directory = load_app(relative)
@@ -101,11 +103,9 @@ def test_rate_limit(load_app):
     assert client.post('/api/ask',json={'question':'a','mode':'plain'}).status_code == 429
 
 
-@pytest.mark.parametrize('stage,mode',[(6,'vector'),(7,'tools'),(8,'plain')])
+@pytest.mark.parametrize('stage,mode',[(8,'plain')])
 def test_exercises_fail_explicitly_until_completed(load_app, stage, mode):
     main, _ = load_app(f'session{stage:02}/exercise')
-    if stage == 6:
-        importlib.import_module('embeddings').build_embeddings()
     response = TestClient(main.app).post('/api/ask',json={
         'question':'SQLite 保存','mode':mode,'search_text':'SQLite 保存'})
     assert response.status_code == 501
@@ -140,6 +140,93 @@ def test_session05_no_match_skips_generation(load_app, monkeypatch):
     assert response.json()['answer'] == '参照できる資料が見つかりません。検索語を変えてください。'
 
 
+@pytest.mark.parametrize('a,b,expected', [
+    ([1,0],[1,0],1),
+    ([1,0],[0,1],0),
+    ([1,0],[-1,0],-1),
+    ([1,2],[3,6],1),
+    ([1,1],[1,0],2 ** -0.5),
+    ([0,0],[1,0],0),
+    ([1,0],[0,0],0),
+])
+def test_session06_cosine_similarity(load_app, a, b, expected):
+    load_app('session06/exercise')
+    vectors = importlib.import_module('embeddings')
+    assert vectors.cosine_similarity(a, b) == pytest.approx(expected)
+
+
+def test_session06_vector_lifecycle(load_app, monkeypatch):
+    main, _ = load_app('session06/exercise')
+    vectors = importlib.import_module('embeddings')
+    knowledge = importlib.import_module('knowledge')
+    client = TestClient(main.app)
+    payload = {'question':'SQLiteに保存するには？', 'mode':'vector', 'top_k':3}
+    with pytest.raises(ValueError, match='長さ'):
+        vectors.cosine_similarity([1], [1,0])
+    assert client.post('/api/ask', json=payload).status_code == 400
+    assert vectors.build_embeddings() == 10
+    response = client.post('/api/ask', json=payload)
+    assert response.status_code == 200
+    sources = response.json()['sources']
+    assert len(sources) == 3
+    assert sources[0]['source'] == '01-web.md'
+    assert sources[0]['heading'] == 'SQLiteと永続化'
+    assert [c['score'] for c in sources] == sorted(
+        [c['score'] for c in sources], reverse=True)
+    assert vectors.search_vector('zzzz-no-match', 3) == []
+    with monkeypatch.context() as patch:
+        patch.setattr(vectors, 'DEMO_MODE', False)
+        def unexpected_client():
+            pytest.fail('異なるモデルのベクトルで検索を続けない')
+        patch.setattr(vectors, 'make_client', unexpected_client)
+        assert client.post('/api/ask', json=payload).status_code == 400
+    knowledge.init_documents()
+    assert client.post('/api/ask', json=payload).status_code == 400
+    vectors.build_embeddings()
+    assert client.post('/api/ask', json=payload).status_code == 200
+
+
+@pytest.mark.parametrize('status,expected_ids', [
+    ('pending',[2,3]), ('done',[1]), ('all',[1,2,3])])
+def test_session07_assignments(load_app, status, expected_ids):
+    load_app('session07/exercise')
+    functions = importlib.import_module('assignment_tools')
+    rows = functions.execute_tool('get_assignments', json.dumps({'status':status}))
+    assert [row['id'] for row in rows] == expected_ids
+    if status != 'all':
+        assert all(row['status'] == status for row in rows)
+
+
+@pytest.mark.parametrize('name,arguments', [
+    ('delete_all','{}'),
+    ('get_assignments','{"status":"unknown"}'),
+    ('get_assignments','{"status":"all","sql":"DROP TABLE assignments"}'),
+    ('get_assignments','[]'),
+    ('get_assignments','{}'),
+    ('get_assignments','{"status":1}'),
+    ('get_assignments','{"status":null}'),
+    ('get_assignments','{"status":"pending\' OR 1=1 --"}'),
+    ('get_assignments','not-json'),
+])
+def test_session07_rejects_invalid_tools(load_app, name, arguments):
+    load_app('session07/exercise')
+    functions = importlib.import_module('assignment_tools')
+    before = functions.get_assignments('all')
+    with pytest.raises(ValueError):
+        functions.execute_tool(name, arguments)
+    assert functions.get_assignments('all') == before
+
+
+def test_session07_demo_uses_fixed_pending(load_app):
+    main, _ = load_app('session07/exercise')
+    client = TestClient(main.app)
+    for question in ['未提出の課題を教えて', '提出済みの課題は？', 'すべての課題を一覧にして']:
+        response = client.post('/api/ask', json={'question':question, 'mode':'tools'})
+        assert response.status_code == 200
+        assert [row['id'] for row in response.json()['tool_results']] == [2,3]
+        assert response.json()['sources'] == []
+
+
 def response_json(output, response_id='resp_test'):
     return {'id':response_id,'object':'response','created_at':0,'model':'gpt-6-luna',
             'status':'completed','output':output,
@@ -152,8 +239,9 @@ def message(text):
             'content':[{'type':'output_text','text':text,'annotations':[]}]}
 
 
-def test_real_sdk_request_and_function_roundtrip(load_app, monkeypatch):
-    main, _ = load_app('sample-app')
+@pytest.mark.parametrize('relative', ['sample-app', 'session07/exercise'])
+def test_real_sdk_request_and_function_roundtrip(load_app, monkeypatch, relative):
+    main, _ = load_app(relative)
     llm = importlib.import_module('llm')
     funcs = importlib.import_module('assignment_tools')
     monkeypatch.setattr(llm,'DEMO_MODE',False)

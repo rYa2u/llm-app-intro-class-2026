@@ -31,12 +31,11 @@ def cosine_similarity(a, b):
     dot = 0.0
     a_size = 0.0
     b_size = 0.0
-    # TODO: 内積と各ベクトルの長さを計算する
-    # for i in range(len(a)):
-    #     dot += a[i] * b[i]
-    #     a_size += a[i] * a[i]
-    #     b_size += b[i] * b[i]
-    raise NotImplementedError('TODO: 内積と各ベクトルの長さを計算する')
+    # 同じ位置の成分を掛け、内積と長さの2乗を合計する。
+    for i in range(len(a)):
+        dot += a[i] * b[i]
+        a_size += a[i] * a[i]
+        b_size += b[i] * b[i]
     if a_size == 0 or b_size == 0:
         return 0.0
     return dot / (math.sqrt(a_size) * math.sqrt(b_size))
